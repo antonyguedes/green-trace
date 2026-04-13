@@ -1,0 +1,294 @@
+networks:
+  greentrace:
+    name: greentrace
+
+services:
+
+  # ─────────────────────────────────────────
+  # ORDERER
+  # ─────────────────────────────────────────
+  orderer.bancocentral.green-trace.com:
+    image: hyperledger/fabric-orderer:3.1.4
+    container_name: orderer.bancocentral.green-trace.com
+    environment:
+      - FABRIC_LOGGING_SPEC=INFO
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_LISTENPORT=7050
+      - ORDERER_GENERAL_LOCALMSPID=OrdererBCMSP
+      - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp
+      - ORDERER_GENERAL_TLS_ENABLED=true
+      - ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key
+      - ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt
+      - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+      - ORDERER_CHANNELPARTICIPATION_ENABLED=true
+      - ORDERER_ADMIN_TLS_ENABLED=true
+      - ORDERER_ADMIN_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt
+      - ORDERER_ADMIN_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key
+      - ORDERER_ADMIN_TLS_ROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+      - ORDERER_ADMIN_TLS_CLIENTROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+      - ORDERER_ADMIN_LISTENADDRESS=0.0.0.0:7053
+      - ORDERER_OPERATIONS_LISTENADDRESS=0.0.0.0:8443
+    volumes:
+      - ./crypto-config/ordererOrganizations/bancocentral.green-trace.com/orderers/orderer.bancocentral.green-trace.com/msp:/var/hyperledger/orderer/msp
+      - ./crypto-config/ordererOrganizations/bancocentral.green-trace.com/orderers/orderer.bancocentral.green-trace.com/tls:/var/hyperledger/orderer/tls
+    ports:
+      - 7050:7050
+      - 7053:7053
+      - 8443:8443
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # COUCHDB — Banco Central
+  # ─────────────────────────────────────────
+  couchdb.bancocentral:
+    image: couchdb:3.3.3
+    container_name: couchdb.bancocentral
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    ports:
+      - 5984:5984
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # BANCO CENTRAL — peer0
+  # ─────────────────────────────────────────
+  peer0.bancocentral.green-trace.com:
+    image: hyperledger/fabric-peer:3.1.4
+    container_name: peer0.bancocentral.green-trace.com
+    depends_on:
+      - couchdb.bancocentral
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=greentrace
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_PROFILE_ENABLED=false
+      - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+      - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+      - CORE_PEER_ID=peer0.bancocentral.green-trace.com
+      - CORE_PEER_ADDRESS=peer0.bancocentral.green-trace.com:7051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.bancocentral.green-trace.com:7052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.bancocentral.green-trace.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.bancocentral.green-trace.com:7051
+      - CORE_PEER_LOCALMSPID=BancoCentralMSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+      - CORE_OPERATIONS_LISTENADDRESS=0.0.0.0:9444
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb.bancocentral:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/msp:/etc/hyperledger/fabric/msp
+      - ./crypto-config/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls:/etc/hyperledger/fabric/tls
+    ports:
+      - 7051:7051
+      - 9444:9444
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # COUCHDB — InstFinA
+  # ─────────────────────────────────────────
+  couchdb.instfina:
+    image: couchdb:3.3.3
+    container_name: couchdb.instfina
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    ports:
+      - 6984:5984
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # INSTITUIÇÃO FINANCEIRA A — peer0
+  # ─────────────────────────────────────────
+  peer0.instfina.green-trace.com:
+    image: hyperledger/fabric-peer:3.1.4
+    container_name: peer0.instfina.green-trace.com
+    depends_on:
+      - couchdb.instfina
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=greentrace
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_PROFILE_ENABLED=false
+      - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+      - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+      - CORE_PEER_ID=peer0.instfina.green-trace.com
+      - CORE_PEER_ADDRESS=peer0.instfina.green-trace.com:8051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:8051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.instfina.green-trace.com:8052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:8052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.instfina.green-trace.com:8051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.instfina.green-trace.com:8051
+      - CORE_PEER_LOCALMSPID=InstFinAMSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+      - CORE_OPERATIONS_LISTENADDRESS=0.0.0.0:9445
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb.instfina:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config/peerOrganizations/instfina.green-trace.com/peers/peer0.instfina.green-trace.com/msp:/etc/hyperledger/fabric/msp
+      - ./crypto-config/peerOrganizations/instfina.green-trace.com/peers/peer0.instfina.green-trace.com/tls:/etc/hyperledger/fabric/tls
+    ports:
+      - 8051:8051
+      - 9445:9445
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # COUCHDB — InstFinB
+  # ─────────────────────────────────────────
+  couchdb.instfinb:
+    image: couchdb:3.3.3
+    container_name: couchdb.instfinb
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    ports:
+      - 7984:5984
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # INSTITUIÇÃO FINANCEIRA B — peer0
+  # ─────────────────────────────────────────
+  peer0.instfinb.green-trace.com:
+    image: hyperledger/fabric-peer:3.1.4
+    container_name: peer0.instfinb.green-trace.com
+    depends_on:
+      - couchdb.instfinb
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=greentrace
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_PROFILE_ENABLED=false
+      - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+      - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+      - CORE_PEER_ID=peer0.instfinb.green-trace.com
+      - CORE_PEER_ADDRESS=peer0.instfinb.green-trace.com:9051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:9051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.instfinb.green-trace.com:9052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:9052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.instfinb.green-trace.com:9051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.instfinb.green-trace.com:9051
+      - CORE_PEER_LOCALMSPID=InstFinBMSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+      - CORE_OPERATIONS_LISTENADDRESS=0.0.0.0:9446
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb.instfinb:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config/peerOrganizations/instfinb.green-trace.com/peers/peer0.instfinb.green-trace.com/msp:/etc/hyperledger/fabric/msp
+      - ./crypto-config/peerOrganizations/instfinb.green-trace.com/peers/peer0.instfinb.green-trace.com/tls:/etc/hyperledger/fabric/tls
+    ports:
+      - 9051:9051
+      - 9446:9446
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # COUCHDB — OrgAmbiental
+  # ─────────────────────────────────────────
+  couchdb.orgambiental:
+    image: couchdb:3.3.3
+    container_name: couchdb.orgambiental
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    ports:
+      - 8984:5984
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # ORG AMBIENTAL — peer0
+  # ─────────────────────────────────────────
+  peer0.orgambiental.green-trace.com:
+    image: hyperledger/fabric-peer:3.1.4
+    container_name: peer0.orgambiental.green-trace.com
+    depends_on:
+      - couchdb.orgambiental
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=greentrace
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_PROFILE_ENABLED=false
+      - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+      - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+      - CORE_PEER_ID=peer0.orgambiental.green-trace.com
+      - CORE_PEER_ADDRESS=peer0.orgambiental.green-trace.com:10051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:10051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.orgambiental.green-trace.com:10052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:10052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.orgambiental.green-trace.com:10051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.orgambiental.green-trace.com:10051
+      - CORE_PEER_LOCALMSPID=OrgAmbientalMSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+      - CORE_OPERATIONS_LISTENADDRESS=0.0.0.0:9447
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb.orgambiental:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config/peerOrganizations/orgambiental.green-trace.com/peers/peer0.orgambiental.green-trace.com/msp:/etc/hyperledger/fabric/msp
+      - ./crypto-config/peerOrganizations/orgambiental.green-trace.com/peers/peer0.orgambiental.green-trace.com/tls:/etc/hyperledger/fabric/tls
+    ports:
+      - 10051:10051
+      - 9447:9447
+    networks:
+      - greentrace
+
+  # ─────────────────────────────────────────
+  # CLI — ferramenta de administração
+  # ─────────────────────────────────────────
+  cli:
+    image: hyperledger/fabric-tools:latest
+    container_name: cli
+    tty: true
+    stdin_open: true
+    environment:
+      - GOPATH=/opt/gopath
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_ID=cli
+      - CORE_PEER_ADDRESS=peer0.bancocentral.green-trace.com:7051
+      - CORE_PEER_LOCALMSPID=BancoCentralMSP
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_TLS_CERT_FILE=/opt/crypto/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/opt/crypto/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/server.key
+      - CORE_PEER_TLS_ROOTCERT_FILE=/opt/crypto/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/ca.crt
+      - CORE_PEER_MSPCONFIGPATH=/opt/crypto/peerOrganizations/bancocentral.green-trace.com/users/Admin@bancocentral.green-trace.com/msp
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config:/opt/crypto
+      - ./channel-artifacts:/opt/channel-artifacts
+    working_dir: /opt
+    command: /bin/bash
+    networks:
+      - greentrace
+    depends_on:
+      - orderer.bancocentral.green-trace.com
+      - peer0.bancocentral.green-trace.com
+      - peer0.instfina.green-trace.com
+      - peer0.instfinb.green-trace.com
+      - peer0.orgambiental.green-trace.com

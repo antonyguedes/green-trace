@@ -1,0 +1,39 @@
+OrdererOrgs:
+  - Name: OrdererBC
+    Domain: bancocentral.green-trace.com
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+
+PeerOrgs:
+  - Name: BancoCentral
+    Domain: bancocentral.green-trace.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+    Users:
+      Count: 1
+
+  - Name: InstFinA
+    Domain: instfina.green-trace.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+    Users:
+      Count: 1
+
+  - Name: InstFinB
+    Domain: instfinb.green-trace.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+    Users:
+      Count: 1
+
+  - Name: OrgAmbiental
+    Domain: orgambiental.green-trace.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+    Users:
+      Count: 1

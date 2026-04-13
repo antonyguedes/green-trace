@@ -1,0 +1,188 @@
+# A seção Organizations define as orgs e aponta onde estão seus certificados (MSP)
+Organizations:
+  - &OrdererBC
+    Name: OrdererBC
+    ID: OrdererBCMSP
+    MSPDir: crypto-config/ordererOrganizations/bancocentral.green-trace.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OrdererBCMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrdererBCMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrdererBCMSP.admin')"
+    OrdererEndpoints:
+      - orderer.bancocentral.green-trace.com:7050
+
+  - &BancoCentral
+    Name: BancoCentral
+    ID: BancoCentralMSP
+    MSPDir: crypto-config/peerOrganizations/bancocentral.green-trace.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('BancoCentralMSP.admin', 'BancoCentralMSP.peer', 'BancoCentralMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('BancoCentralMSP.admin', 'BancoCentralMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('BancoCentralMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('BancoCentralMSP.peer')"
+
+  - &InstFinA
+    Name: InstFinA
+    ID: InstFinAMSP
+    MSPDir: crypto-config/peerOrganizations/instfina.green-trace.com/msp
+    Policies: &InstFinAPolicies
+      Readers:
+        Type: Signature
+        Rule: "OR('InstFinAMSP.admin', 'InstFinAMSP.peer', 'InstFinAMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('InstFinAMSP.admin', 'InstFinAMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('InstFinAMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('InstFinAMSP.peer')"
+
+  - &InstFinB
+    Name: InstFinB
+    ID: InstFinBMSP
+    MSPDir: crypto-config/peerOrganizations/instfinb.green-trace.com/msp
+    Policies: &InstFinBPolicies
+      Readers:
+        Type: Signature
+        Rule: "OR('InstFinBMSP.admin', 'InstFinBMSP.peer', 'InstFinBMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('InstFinBMSP.admin', 'InstFinBMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('InstFinBMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('InstFinBMSP.peer')"
+
+  - &OrgAmbiental
+    Name: OrgAmbiental
+    ID: OrgAmbientalMSP
+    MSPDir: crypto-config/peerOrganizations/orgambiental.green-trace.com/msp
+    Policies: &OrgAmbientalPolicies
+      Readers:
+        Type: Signature
+        Rule: "OR('OrgAmbientalMSP.admin', 'OrgAmbientalMSP.peer', 'OrgAmbientalMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrgAmbientalMSP.admin', 'OrgAmbientalMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrgAmbientalMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('OrgAmbientalMSP.peer')"
+
+# A seção Capabilities define a versão das regras que a rede obedece
+Capabilities:
+  Channel: &ChannelCapabilities
+    V3_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_5: true
+
+# Configurações do canal de aplicação (quem entra nele)
+Application: &ApplicationDefaults
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    LifecycleEndorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+    Endorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+  Capabilities:
+    <<: *ApplicationCapabilities
+
+# Configurações do Orderer (Consenso Raft e quem compõe a rede de ordens)
+Orderer: &OrdererDefaults
+  OrdererType: etcdraft
+  EtcdRaft:
+    Consenters:
+      - Host: orderer.bancocentral.green-trace.com
+        Port: 7050
+        ClientTLSCert: crypto-config/ordererOrganizations/bancocentral.green-trace.com/orderers/orderer.bancocentral.green-trace.com/tls/server.crt
+        ServerTLSCert: crypto-config/ordererOrganizations/bancocentral.green-trace.com/orderers/orderer.bancocentral.green-trace.com/tls/server.crt
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    BlockValidation:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+
+# Profiles: É aqui que juntamos as peças acima para gerar o bloco
+Profiles:
+  GreenTraceGenesis:
+    # Políticas gerais do canal
+    Policies:
+      Readers:
+        Type: ImplicitMeta
+        Rule: "ANY Readers"
+      Writers:
+        Type: ImplicitMeta
+        Rule: "ANY Writers"
+      Admins:
+        Type: ImplicitMeta
+        Rule: "MAJORITY Admins"
+    
+    # Aqui está a correção: A capacidade V2_0 encapsulada corretamente
+    Capabilities:
+      <<: *ChannelCapabilities
+    
+    # Configurações do Orderer para este bloco
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererBC
+      Capabilities:
+        <<: *OrdererCapabilities
+    
+    # Configurações do Canal de Aplicação e seus membros
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *BancoCentral
+        - *InstFinA
+        - *InstFinB
+        - *OrgAmbiental
+      Capabilities:
+        <<: *ApplicationCapabilities
