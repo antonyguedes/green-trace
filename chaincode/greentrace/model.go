@@ -7,9 +7,12 @@ package main
 
 // Status possíveis do TCA
 const (
-	StatusAtivo    = "ATIVO"
-	StatusExpirado = "EXPIRADO"
-	StatusRevogado = "REVOGADO"
+	StatusAtivo      = "ATIVO"
+	StatusExpirado   = "EXPIRADO"
+	StatusRevogado   = "REVOGADO"
+	StatusSuspenso   = "SUSPENSO"
+	StatusFinalizado = "FINALIZADO"
+	StatusNegado     = "NEGADO"
 )
 
 // Validade padrão do TCA em meses — conforme Res. CMN 5.267/2025
@@ -29,11 +32,15 @@ type TCA struct {
 	InstFinEmissora string `json:"instFinEmissora"` // MSPID da IF solicitante
 
 	// ── Ciclo de vida ────────────────────────────────────────────────────────
-	Status          string `json:"status"`          // ATIVO | EXPIRADO | REVOGADO
-	DataEmissao     string `json:"dataEmissao"`     // RFC3339
-	DataValidade    string `json:"dataValidade"`    // RFC3339 — emissao + 6 meses
-	DataRevogacao   string `json:"dataRevogacao"`   // preenchido só se REVOGADO
-	MotivoRevogacao string `json:"motivoRevogacao"` // descrição da revogação
+	Status             string      `json:"status"`             // ATIVO | EXPIRADO | REVOGADO | SUSPENSO | FINALIZADO | NEGADO
+	DataEmissao        string      `json:"dataEmissao"`        // RFC3339
+	DataValidade       string      `json:"dataValidade"`       // RFC3339 — emissao + 6 meses
+	DataRevogacao      string      `json:"dataRevogacao"`      // preenchido só se REVOGADO
+	MotivoRevogacao    string      `json:"motivoRevogacao"`    // descrição da revogação
+	DataSuspensao      string      `json:"dataSuspensao"`      // preenchido se SUSPENSO
+	MotivoSuspensao    string      `json:"motivoSuspensao"`    // descrição da suspensão atual
+	DataFinalizacao    string      `json:"dataFinalizacao"`    // preenchido se FINALIZADO
+	HistoricoSuspensoes []Suspensao `json:"historicoSuspensoes"`// armazena as suspensões e reativações passadas
 
 	// ── Impedimentos absolutos ───────────────────────────────────────────────
 	// Res. CMN 5.193/2024 e 5.268/2025: qualquer true bloqueia o TCA
@@ -97,4 +104,18 @@ type RespostaConsulta struct {
 	TCA           *TCA   `json:"tca,omitempty"`
 	PodeReutilizar bool  `json:"podeReutilizar"` // true se válido e < 6 meses
 	Mensagem      string `json:"mensagem"`
+}
+
+// Suspensao — armazena histórico de eventos de suspensão e reativação no ciclo de vida
+type Suspensao struct {
+	Motivo       string `json:"motivo"`
+	DataSuspenso string `json:"dataSuspenso"`
+	ReativadoEm  string `json:"reativadoEm"`
+}
+
+// HistoricoTCA — usado para visualização das transferências / log de auditoria
+type HistoricoTCA struct {
+	TxId      string `json:"txId"`
+	Timestamp string `json:"timestamp"`
+	TCA       *TCA   `json:"tca"`
 }

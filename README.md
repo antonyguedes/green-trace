@@ -1,261 +1,309 @@
 # 🌿 GreenTrace
 
 > **Blockchain-based Environmental Compliance for Rural Credit in Brazil**
----
 
-## Overview
-
-GreenTrace is a permissioned blockchain network that automates the issuance of **Environmental Compliance Tokens (TCA — Token de Conformidade Ambiental)** for rural credit operations in Brazil.
-
-Today, financial institutions verify environmental compliance manually — consulting multiple government systems, generating PDFs, and repeating the process for every credit operation. GreenTrace replaces this fragmented workflow with an **immutable, auditable, and shareable evidence chain** on a Hyperledger Fabric network.
-
-Each TCA encodes a complete chain of evidence from official Brazilian environmental sources, verifying that a rural property complies with the requirements of **Resoluções CMN nº 5.193/2024, 5.267/2025, and 5.268/2025** before credit is granted.
+GreenTrace é uma plataforma descentralizada de conformidade ambiental que automatiza a emissão de **Tokens de Conformidade Ambiental (TCA)** para operações de crédito rural no Brasil, utilizando o **Hyperledger Fabric** como ledger imutável de evidências.
 
 ---
 
-## Architecture
+## O Problema
 
-### Network Structure
+Instituições financeiras verificam a conformidade ambiental de propriedades rurais **manualmente** — consultando SICAR, IBAMA, PRODES, INCRA e outros sistemas, gerando documentos em PDF e repetindo o processo a cada operação. Esse fluxo é fragmentado, custoso e sujeito a fraude.
+
+**GreenTrace substitui esse workflow** por uma cadeia de evidências imutável, auditável e compartilhável entre instituições — ancorada em blockchain permissionada.
+
+---
+
+## Arquitetura
+
+GreenTrace é uma aplicação dApp full-stack em três camadas:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  GREENTRACE NETWORK                     │
-│                                                         │
-│  Org1: BancoCentral  (regulator / auditor)              │
-│  Org2: InstFinA      (financial institution A)          │
-│  Org3: InstFinB      (financial institution B)          │
-│  Org4: OrgAmbiental  (environmental data oracle)        │
-│                                                         │
-│  Orderer: OrdererBC  (Raft consensus)                   │
-│  Channel: greentracechannel                             │
-│  State DB: CouchDB   (rich query support)               │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│              FRONTEND  —  React 19 + Vite + TanStack                   │
+│   Dashboard de Analista (IF) e Auditor (Banco Central)                 │
+└─────────────────────────────┬──────────────────────────────────────────┘
+                              │ REST (HTTP/JSON)
+┌─────────────────────────────▼──────────────────────────────────────────┐
+│      API GATEWAY  —  NestJS + Fabric Gateway SDK (Node.js)             │
+│   Módulos: Fabric | TCA | Mock Oracle                                  │
+└─────────────────────────────┬──────────────────────────────────────────┘
+                              │ gRPC (TLS)
+┌─────────────────────────────▼──────────────────────────────────────────┐
+│       HYPERLEDGER FABRIC 3.1.4 — greentracechannel                     │
+│                                                                        │
+│   Org 1: BancoCentral    (regulador / auditor)      → peer :7051       │
+│   Org 2: InstFinA        (Instituição Financeira A) → peer :8051       │
+│   Org 3: InstFinB        (Instituição Financeira B) → peer :9051       │
+│   Org 4: OrgAmbiental    (Oráculo de dados)         → peer :10051      │
+│                                                                        │
+│   Orderer: OrdererBC (Raft)    CouchDB por peer                        │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Tech Stack
+### Stack Tecnológico
 
-| Component | Technology |
+| Componente | Tecnologia |
 |---|---|
 | Blockchain | Hyperledger Fabric 3.1.4 |
-| Consensus | etcd/Raft |
-| Chaincode | Go 1.21 + fabric-contract-api-go |
-| State Database | CouchDB 3.3.3 |
-| Infrastructure | Docker Compose |
-| Certificate Authority | cryptogen (dev) |
+| Consenso | etcd / Raft |
+| Chaincode | Go 1.25+ (`fabric-contract-api-go`) |
+| State Database | CouchDB 3.3.3 _(rich queries)_ |
+| API Gateway | NestJS 11 + `@hyperledger/fabric-gateway` |
+| Frontend | React 19 + Vite + TanStack Router/Query |
+| Estilo | Vanilla CSS (Glassmorphism / Dark Mode) |
+| Identidade _(Fase 4)_ | W3C Verifiable Credentials (SSI / ZKP) |
 
 ---
 
-## The TCA — Environmental Compliance Token
+## O Token de Conformidade Ambiental (TCA)
 
-A TCA is a JSON document recorded immutably on the ledger. It contains:
+### Modelo de Dados Principal
 
-- **Identity**: CAR code (Brazil's Rural Environmental Registry), hashed CPF/CNPJ, issuing institution
-- **Lifecycle**: Status (`ATIVO` / `EXPIRADO` / `REVOGADO`), issuance date, 6-month validity
-- **Absolute Impediments**: Binary flags per CMN 5.193/2024 — any `true` blocks token issuance
-- **Compliance Score**: 0–100 score from non-absolute criteria (threshold: 80)
-- **Evidence Chain**: One entry per official data source, each with timestamp and SHA-256 hash
+```go
+type TCA struct {
+    ID              string // ex: "TCA-CAR-SP-1234567-1744912800"
+    CodigoCAR       string // Identificador no SICAR
+    CPFCNPJHash     string // SHA-256 — nunca dado bruto no ledger
+    InstFinEmissora string // MSPID da IF (ex: "InstFinAMSP")
 
-### Evidence Sources
+    // Lifecycle
+    Status              string     // ATIVO | EXPIRADO | REVOGADO | SUSPENSO | FINALIZADO | NEGADO
+    DataEmissao         string     // RFC3339
+    DataValidade        string     // Emissão + 6 meses (Res. CMN 5.267/2025)
+    DataSuspensao       string
+    MotivoSuspensao     string
+    DataFinalizacao     string
+    HistoricoSuspensoes []Suspensao
 
-| Source | Data | Basis |
+    // Conformidade
+    Impedimentos         ImpedimentosAbsolutos
+    ScoreConformidade    int  // 0–100 (aprovado se >= 80)
+    Aprovado             bool
+
+    // Evidências encadeadas
+    Evidencias Evidencias // Uma entrada por fonte oficial (hash SHA-256 + timestamp)
+
+    // Reaproveitamento multi-IF
+    TCAOrigemID string
+    RevalidadoEm string
+}
+```
+
+### Fontes de Evidência
+
+| Fonte | Dado Verificado | Base Legal |
 |---|---|---|
-| SICAR/MMA | CAR active status, no overlap with protected areas | Código Florestal |
-| IBAMA | Federal embargo status | CMN 5.193/2024 |
-| OEMA | State-level embargo status | CMN 5.268/2025 |
-| INCRA/SNCR | Land tenure regularity | MCR |
-| INPE/PRODES | Illegal deforestation detection | CMN 5.193/2024 (mandatory 2026) |
-| SICAR/CAR | Legal Reserve percentage and registration | Código Florestal |
-| MTE | Slave labor employer registry | BCB 140/2021 |
-| SFB | Public forest non-overlap | CMN 5.268/2025 |
+| SICAR/MMA | CAR ativo, sem sobreposição | Código Florestal |
+| IBAMA | Embargos federais | Res. CMN 5.193/2024 |
+| OEMA | Embargos estaduais | Res. CMN 5.268/2025 |
+| INCRA/SNCR | Situação fundiária | MCR |
+| INPE/PRODES | Desmatamento ilegal | Res. CMN 5.193/2024 _(obrigatório 2026)_ |
+| SICAR/CAR | Reserva Legal averbada | Código Florestal |
+| MTE | Cadastro de trabalho escravo | Res. BCB 140/2021 |
+| SFB | Floresta pública não destinada | Res. CMN 5.268/2025 |
 
-### TCA Lifecycle
+### Ciclo de Vida
 
 ```
-EmitirTCA ──► ATIVO ──► ExpirarTCAs ──► EXPIRADO
+EmitirTCA ──► ATIVO ────► SuspenderTCA ────► SUSPENSO
+                │              │                  │
+                │              │                  └─► ReativarTCA ──► ATIVO
+                │              │
+                │              └────────────────────► RevogarTCA ───► REVOGADO
                 │
-                └──► RevogarTCA ──────► REVOGADO
-
-ATIVO ──► ConsultarTCA ──► RevalidarTCA ──► new ATIVO (linked to new IF)
+                ├──────────────────────────────────► FinalizarTCA ──► FINALIZADO
+                │
+                └──────────────────────────────────► RevalidarTCA ──► new ATIVO (nova IF)
 ```
+
+**Impedimentos absolutos** (qualquer `true` bloqueia a emissão → status `NEGADO`):
+- Embargo IBAMA ativo
+- Embargo OEMA (estadual) ativo
+- Desmatamento ilegal detectado pelo INPE/PRODES
+- Produtor no Cadastro de Empregadores MTE (trabalho escravo)
+- Imóvel em floresta pública não destinada
 
 ---
 
-## Chaincode Functions
+## Chaincode — Funções Disponíveis
 
-| Function | Access | Description |
+| Função | Acesso Permitido | Descrição |
 |---|---|---|
-| `EmitirTCA` | Any IF | Queries all environmental sources and issues a TCA if compliant |
-| `ConsultarTCA` | Any org | Returns the latest active TCA for a given CAR code |
-| `RevalidarTCA` | Any IF | Reuses static evidence, re-validates dynamic data (IBAMA, PRODES) |
-| `RevogarTCA` | BC or issuing IF | Revokes an active TCA with a stated reason |
-| `ListarTCAs` | BancoCentralMSP only | Returns all TCAs for regulatory oversight |
-| `ExpirarTCAs` | Scheduler trigger | Marks expired TCAs as `EXPIRADO` |
+| `EmitirTCA` | Qualquer IF | Valida evidências e registra o TCA |
+| `ConsultarTCA` | Qualquer org | Retorna o TCA atual por CAR |
+| `RevalidarTCA` | Qualquer IF | Revalida com novas evidências dinâmicas |
+| `SuspenderTCA` | BC ou IF emissora | Suspende por infração detectada |
+| `ReativarTCA` | BC ou IF emissora | Reativa após regularização comprovada |
+| `FinalizarTCA` | BC ou IF emissora | Finaliza após quitação do crédito |
+| `RevogarTCA` | BC ou IF emissora | Revogação definitiva com motivo |
+| `ConsultarMeusTCAs` | IF autenticada | Lista TCAs emitidos pela própria IF |
+| `ListarTCAs` | `BancoCentralMSP` | Visão regulatória global |
+| `AuditarTransacoes` | `BancoCentralMSP` | Histórico completo de estados (ledger) |
 
 ---
 
-## Prerequisites
+## API Gateway — Endpoints REST
 
-- Docker & Docker Compose
-- Hyperledger Fabric binaries 3.1.4 (`peer`, `configtxgen`, `cryptogen`, `osnadmin`)
-- Go 1.21+
-- Fabric samples (for `core.yaml` config)
+Swagger disponível em `http://localhost:3000/api/docs`.
 
-Add peer hostnames to `/etc/hosts`:
+A identidade da organização é passada via header `x-organization` (ex: `BancoCentral`, `InstFinA`).
 
 ```
-127.0.0.1 peer0.bancocentral.green-trace.com
-127.0.0.1 peer0.instfina.green-trace.com
-127.0.0.1 peer0.instfinb.green-trace.com
-127.0.0.1 peer0.orgambiental.green-trace.com
-127.0.0.1 orderer.bancocentral.green-trace.com
+POST   /tca                      # Emitir novo TCA (Oráculo é consultado automaticamente)
+GET    /tca/meus                  # Listar TCAs da minha IF
+GET    /tca/todos                 # Visão BC: todos os TCAs do ledger
+GET    /tca/:codigoCAR            # Consultar estado atual
+GET    /tca/:codigoCAR/historico  # Auditar histórico de transações
+POST   /tca/revalidar             # Revalidar com novas evidências
+POST   /tca/:id/suspender         # Suspender
+POST   /tca/:id/reativar          # Reativar
+POST   /tca/:id/finalizar         # Finalizar
+POST   /tca/:id/revogar           # Revogar
 ```
 
 ---
 
-## Project Structure
+## Estrutura do Projeto
 
 ```
 green-trace/
+├── chaincode/
+│   └── greentrace/
+│       ├── main.go          # Funções do contrato e lógica do ciclo de vida
+│       ├── model.go         # Structs: TCA, Evidencias, Impedimentos, Suspensao
+│       ├── sources.go       # Avaliação de impedimentos, score e mock oracle
+│       └── go.mod
+│
 ├── network/
-│   ├── configtx.yaml              # Channel and org policies
-│   ├── crypto-config.yaml         # Identity generation config
-│   ├── docker-compose.yaml        # 4 peers + 4 CouchDBs + orderer + CLI
-│   ├── deploy.sh                  # One-shot deploy script
+│   ├── configtx.yaml        # Políticas de canal e organizações
+│   ├── crypto-config.yaml   # Geração de identidades criptográficas
+│   ├── docker-compose.yaml  # 4 peers + 4 CouchDBs + orderer + CLI
+│   ├── deploy.sh            # Deploy inicial completo (join → install → commit)
+│   ├── upgrade_chaincode.sh # Upgrade inteligente com empacotamento automático
 │   ├── channel-artifacts/
 │   │   └── greentracechannel.block
-│   └── crypto-config/             # Generated certificates and keys
-│       ├── ordererOrganizations/
-│       └── peerOrganizations/
-└── chaincode/
-    └── greentrace/
-        ├── main.go                # Chaincode entrypoint and contract functions
-        ├── model.go               # TCA, Evidencias, Impedimentos data structures
-        ├── sources.go             # Environmental source queries and scoring
-        └── go.mod
+│   └── crypto-config/       # Certificados e chaves gerados (não comitar)
+│
+├── api/
+│   └── src/
+│       ├── fabric/          # ConnectionService (gRPC) + ContractService (wrapper)
+│       ├── tca/             # TcaController + TcaModule
+│       ├── oracle/          # Mock Oracle: simula SICAR/IBAMA/PRODES/MTE
+│       └── main.ts          # Bootstrap NestJS + Swagger + CORS
+│
+└── frontend/
+    └── src/
+        ├── api.ts           # Axios client com interceptor de identidade
+        ├── App.tsx          # Dashboard principal + seletor de organização
+        └── components/
+            ├── TcaCard.tsx  # Card de exibição do TCA com ações
+            └── ScoreBadge.tsx # Indicador visual de score de conformidade
 ```
 
 ---
 
-## Getting Started
+## Pré-requisitos
 
-### 1. Generate Certificates and Channel Block
+- **Docker** e **Docker Compose**
+- **Hyperledger Fabric Binaries 3.1.4** (`peer`, `configtxgen`, `cryptogen`, `osnadmin`) no PATH
+- **Node.js 22+** e npm
+- **Go 1.25+**
+
+Adicione os hosts ao `/etc/hosts`:
+
+```
+127.0.0.1  peer0.bancocentral.green-trace.com
+127.0.0.1  peer0.instfina.green-trace.com
+127.0.0.1  peer0.instfinb.green-trace.com
+127.0.0.1  peer0.orgambiental.green-trace.com
+127.0.0.1  orderer.bancocentral.green-trace.com
+```
+
+---
+
+## Como Executar
+
+### 1. Subir a rede Fabric
 
 ```bash
-cd network/
-
-# Generate crypto material
+cd network
 cryptogen generate --config=crypto-config.yaml
+configtxgen -configPath . -profile GreenTraceGenesis \
+  -channelID greentracechannel -outputBlock ./channel-artifacts/greentracechannel.block
 
-# Generate channel genesis block
-configtxgen \
-  -configPath . \
-  -profile GreenTraceGenesis \
-  -channelID greentracechannel \
-  -outputBlock ./channel-artifacts/greentracechannel.block
-```
-
-### 2. Package the Chaincode
-
-```bash
-export FABRIC_CFG_PATH=./fabric-samples/config
-
-peer lifecycle chaincode package greentrace.tar.gz \
-  --path /absolute/path/to/chaincode/greentrace \
-  --lang golang \
-  --label greentrace_1.0
-```
-
-### 3. Start the Network and Deploy
-
-```bash
-# Start all containers
-docker-compose up -d
-
-# Wait for peers to initialize (~20s), then run the full deploy
+docker compose up -d
 sleep 20
 bash deploy.sh
 ```
 
-The `deploy.sh` script handles everything:
-- Registers the channel with the orderer (`osnadmin`)
-- Joins all 4 peers to the channel
-- Installs, approves, and commits the chaincode
-
-### 4. Issue Your First TCA
+### 2. Fazer Upgrade do Chaincode (após mudanças)
 
 ```bash
-docker exec -it cli bash
-
-export ORDERER_CA=/opt/crypto/ordererOrganizations/bancocentral.green-trace.com/tlsca/tlsca.bancocentral.green-trace.com-cert.pem
-
-peer chaincode invoke \
-  -o orderer.bancocentral.green-trace.com:7050 \
-  --ordererTLSHostnameOverride orderer.bancocentral.green-trace.com \
-  --tls --cafile $ORDERER_CA \
-  -C greentracechannel -n greentrace \
-  --peerAddresses peer0.bancocentral.green-trace.com:7051 \
-  --tlsRootCertFiles /opt/crypto/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/ca.crt \
-  -c '{"function":"EmitirTCA","Args":["CAR-SP-1234567-2026","<sha256-of-cpf-cnpj>"]}'
+cd network
+bash upgrade_chaincode.sh
+# → informe a nova versão (ex: 4.0) e sequência (ex: 4)
 ```
 
-### 5. Query a TCA
+### 3. Iniciar a API Gateway
 
 ```bash
-peer chaincode query \
-  -C greentracechannel -n greentrace \
-  -c '{"function":"ConsultarTCA","Args":["CAR-SP-1234567-2026"]}'
+cd api
+npm install
+npm run start:dev
+# Acesse: http://localhost:3000/api/docs
+```
+
+### 4. Iniciar o Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+# Acesse: http://localhost:5173
 ```
 
 ---
 
-## Regulatory Basis
+## CouchDB (Inspeção do Ledger)
 
-GreenTrace is designed to operationalize the following Brazilian regulations:
-
-- **Resolução CMN nº 5.193/2024** — Mandatory environmental verification (CAR × PRODES × embargos) before rural credit
-- **Resolução CMN nº 5.267/2025** — Continuous monitoring (documental, presencial, sensoriamento remoto) throughout the credit lifecycle
-- **Resolução CMN nº 5.268/2025** — Updated socio-environmental impediments, including public forest non-overlap
-- **Resolução BCB nº 140/2021** — Slave labor employer registry as credit impediment
-- **Resolução CMN nº 4.945/2021** — PRSAC (Social, Environmental and Climate Responsibility Policy)
-
----
-
-## Cross-Institution TCA Reuse
-
-A key innovation: when Institution B wants to verify a property already checked by Institution A, GreenTrace does not repeat the full verification. Instead:
-
-1. Static evidence (CAR, INCRA, Legal Reserve) is **reused** from the original TCA
-2. Dynamic impediments (IBAMA embargos, PRODES deforestation) are **always re-validated** — these change frequently
-3. A **new TCA is issued** linked to Institution B, with full audit trail back to the origin
-
-This reduces compliance cost across the system while maintaining regulatory integrity.
-
----
-
-## CouchDB Dashboard
-
-Each peer has its own CouchDB instance. You can inspect the ledger state via the Fauxton UI:
-
-| Org | CouchDB URL |
+| Organização | URL |
 |---|---|
 | BancoCentral | http://localhost:5984/_utils |
 | InstFinA | http://localhost:6984/_utils |
 | InstFinB | http://localhost:7984/_utils |
 | OrgAmbiental | http://localhost:8984/_utils |
 
-Credentials: `admin` / `adminpw`
+Credenciais: `admin` / `adminpw`
+
+---
+
+## Base Regulatória
+
+| Norma | Objeto |
+|---|---|
+| Res. CMN nº 5.193/2024 | Verificação ambiental obrigatória antes do crédito rural |
+| Res. CMN nº 5.267/2025 | Monitoramento contínuo (documental, presencial e remoto) |
+| Res. CMN nº 5.268/2025 | Impedimentos socioambientais atualizados (floresta pública) |
+| Res. BCB nº 140/2021 | Cadastro de trabalho escravo como impedimento ao crédito |
+| Res. CMN nº 4.945/2021 | PRSAC — Política de Responsabilidade Socioambiental |
 
 ---
 
 ## Roadmap
 
-- [ ] Connect to live Brazilian government APIs (SICAR, IBAMA, PRODES)
-- [ ] Implement W3C Verifiable Credentials for producer identity (Hyperledger Aries)
-- [ ] Build REST API gateway (Fabric Gateway SDK)
-- [ ] Public dashboard with aggregated compliance metrics for BC regulatory oversight
+- [x] Rede Hyperledger Fabric 3.1.4 com 4 organizações
+- [x] Chaincode Go com ciclo de vida estendido (`SUSPENSO`, `FINALIZADO`, `NEGADO`)
+- [x] Auditoria completa via `GetHistoryForKey`
+- [x] Reaproveitamento de TCA com revalidação de impedimentos dinâmicos
+- [x] API Gateway NestJS com Fabric SDK (gRPC nativo, identidades por org)
+- [x] Mock Oracle integrado (SICAR / IBAMA / INPE / MTE)
+- [x] Dashboard React 19 com TanStack Query + Design System Glassmorphism
+- [ ] **Fase 4**: W3C Verifiable Credentials para identidade do produtor (SSI / ZKP)
+- [ ] Integração real com APIs governamentais (TRL 7+)
 
 ---
 
-## License
+## Licença
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License — veja [LICENSE](LICENSE) para detalhes.

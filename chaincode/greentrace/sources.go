@@ -28,6 +28,7 @@ type ResultadoRevalidacao struct {
 }
 
 // consultarFontesAmbientais — consulta todas as fontes e retorna as evidências
+// DEPRECATED — Agora recebido via API para garantir determinismo no consenso Fabric (evitando time.Now() e chamadas externas no chaincode)
 func consultarFontesAmbientais(codigoCAR string) (Evidencias, error) {
 	agora := time.Now().UTC().Format(time.RFC3339)
 
@@ -137,6 +138,7 @@ func consultarFontesAmbientais(codigoCAR string) (Evidencias, error) {
 
 // revalidarImpedimentosDinamicos — revalida apenas IBAMA, OEMA e PRODES
 // (dados que mudam com frequência — usados no RevalidarTCA)
+// DEPRECATED — Agora revalidadas via Node API externa e injetadas no RevalidarTCA para determinismo.
 func revalidarImpedimentosDinamicos(codigoCAR string) (*ResultadoRevalidacao, error) {
 	agora := time.Now().UTC().Format(time.RFC3339)
 

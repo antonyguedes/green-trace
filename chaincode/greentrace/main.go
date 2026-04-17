@@ -26,74 +26,61 @@ type GreenTraceContract struct {
 // Chamado pela IF ao iniciar análise de crédito rural.
 // ─────────────────────────────────────────────────────────────────────────────
 func (c *GreenTraceContract) EmitirTCA(
-	ctx contractapi.TransactionContextInterface,
-	codigoCAR string,
-	cpfCNPJHash string,
+    ctx contractapi.TransactionContextInterface,
+    codigoCAR string,
+    cpfCNPJHash string,
+    evidenciasJSON string, // Recebido do Backend (NestJS)
 ) (*TCA, error) {
 
-	// 1. Verificar se já existe TCA ativo para este imóvel
-	tcaExistente, err := c.buscarTCAAtivo(ctx, codigoCAR)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar TCA existente: %w", err)
-	}
-	if tcaExistente != nil {
-		return nil, fmt.Errorf(
-			"já existe TCA ativo para o imóvel %s (ID: %s). Use RevalidarTCA",
-			codigoCAR, tcaExistente.ID,
-		)
-	}
+    // 1. DETERMINISMO: Obter tempo da transação
+    txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+    if err != nil {
+        return nil, fmt.Errorf("erro timestamp: %w", err)
+    }
+    agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC()
 
-	// 2. Identificar a IF emissora pelo MSPID do cliente
-	mspID, err := ctx.GetClientIdentity().GetMSPID()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao obter MSPID: %w", err)
-	}
+    // 2. BUSCA EXISTENTE (Usando sua função auxiliar)
+    tcaExistente, _ := c.buscarTCAAtivo(ctx, codigoCAR)
+    if tcaExistente != nil {
+        return nil, fmt.Errorf("já existe TCA ativo para o imóvel %s", codigoCAR)
+    }
 
-	// 3. Consultar todas as fontes e montar evidências
-	evidencias, err := consultarFontesAmbientais(codigoCAR)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao consultar fontes ambientais: %w", err)
-	}
+    // 3. PARSE DAS EVIDÊNCIAS
+    var ev Evidencias
+    if err := json.Unmarshal([]byte(evidenciasJSON), &ev); err != nil {
+        return nil, fmt.Errorf("falha ao processar evidências: %v", err)
+    }
 
-	// 4. Avaliar impedimentos absolutos (Res. CMN 5.193/2024 e 5.268/2025)
-	impedimentos := avaliarImpedimentos(evidencias)
+    // 4. LÓGICA DE NEGÓCIO (Baseada no seu Model)
+    impedimentos := avaliarImpedimentos(ev)
 
-	// 5. Calcular score complementar
-	score := calcularScore(evidencias)
-	aprovado := !temImpedimento(impedimentos) && score >= ScoreMinimo
+    // Cálculo de Score simples baseado nos pesos que você definiu no Model
+    scoreTotal := ev.CAR.PesoScore + ev.IBAMA.PesoScore + ev.PRODES.PesoScore // ... etc
+    aprovado := !temImpedimento(impedimentos) && scoreTotal >= ScoreMinimo
 
-	// 6. Calcular datas
-	agora := time.Now().UTC()
-	validade := agora.AddDate(0, ValidadeMeses, 0)
+    // 5. MONTAGEM DO OBJETO
+    status := StatusAtivo
+    if !aprovado {
+        status = StatusNegado
+    }
 
-	// 7. Gerar ID único
-	id := fmt.Sprintf("TCA-%s-%s", codigoCAR, agora.Format("20060102150405"))
+    mspID, _ := ctx.GetClientIdentity().GetMSPID()
+    tca := &TCA{
+        ID:                fmt.Sprintf("TCA-%s-%d", codigoCAR, txTimestamp.Seconds),
+        CodigoCAR:         codigoCAR,
+        CPFCNPJHash:       cpfCNPJHash,
+        InstFinEmissora:   mspID,
+        Status:            status,
+        DataEmissao:       agora.Format(time.RFC3339),
+        DataValidade:      agora.AddDate(0, ValidadeMeses, 0).Format(time.RFC3339),
+        Impedimentos:      impedimentos,
+        ScoreConformidade: scoreTotal,
+        Aprovado:          aprovado,
+        Evidencias:        ev,
+    }
 
-	// 8. Montar TCA
-	tca := &TCA{
-		ID:              id,
-		CodigoCAR:       codigoCAR,
-		CPFCNPJHash:     cpfCNPJHash,
-		InstFinEmissora: mspID,
-		Status:          StatusAtivo,
-		DataEmissao:     agora.Format(time.RFC3339),
-		DataValidade:    validade.Format(time.RFC3339),
-		Impedimentos:    impedimentos,
-		ScoreConformidade: score,
-		Aprovado:        aprovado,
-		Evidencias:      evidencias,
-		TCAOrigemID:     "",
-		RevalidadoEm:    "",
-	}
-
-	// 9. Se não aprovado, registra mesmo assim — para auditoria regulatória
-	// O campo Aprovado=false sinaliza que o crédito deve ser bloqueado
-	err = salvarTCA(ctx, tca)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao salvar TCA: %w", err)
-	}
-
-	return tca, nil
+    // 6. PERSISTÊNCIA
+    return tca, salvarTCA(ctx, tca)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,8 +111,13 @@ func (c *GreenTraceContract) ConsultarTCA(
 	if err != nil {
 		return nil, fmt.Errorf("erro ao parsear data de validade: %w", err)
 	}
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return nil, fmt.Errorf("falha ao obter timestamp da transação: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC()
 
-	podeReutilizar := time.Now().UTC().Before(validade) && tca.Aprovado
+	podeReutilizar := agora.Before(validade) && tca.Aprovado
 
 	return &RespostaConsulta{
 		Encontrado:    true,
@@ -150,6 +142,7 @@ func (c *GreenTraceContract) RevalidarTCA(
 	ctx contractapi.TransactionContextInterface,
 	tcaOrigemID string,
 	cpfCNPJHash string,
+	evidenciasJSON string,
 ) (*TCA, error) {
 
 	// 1. Buscar TCA de origem
@@ -168,25 +161,36 @@ func (c *GreenTraceContract) RevalidarTCA(
 		return nil, fmt.Errorf("erro ao obter MSPID: %w", err)
 	}
 
-	// 3. Revalidar APENAS impedimentos absolutos (dados dinâmicos)
-	impedimentosAtuais, err := revalidarImpedimentosDinamicos(tcaOrigem.CodigoCAR)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao revalidar impedimentos: %w", err)
+	// 3. Processar novas evidências dinâmicas vindas do cliente
+	var novasEvidencias Evidencias
+	if err := json.Unmarshal([]byte(evidenciasJSON), &novasEvidencias); err != nil {
+		return nil, fmt.Errorf("falha ao processar evidências para revalidação: %v", err)
 	}
 
 	// 4. Manter evidências estáticas do TCA de origem (CAR, INCRA, RL)
 	evidencias := tcaOrigem.Evidencias
-	evidencias.IBAMA = impedimentosAtuais.EvidenciaIBAMA
-	evidencias.OEMA = impedimentosAtuais.EvidenciaOEMA
-	evidencias.PRODES = impedimentosAtuais.EvidenciaPRODES
+	evidencias.IBAMA = novasEvidencias.IBAMA
+	evidencias.OEMA = novasEvidencias.OEMA
+	evidencias.PRODES = novasEvidencias.PRODES
+	evidencias.TrabalhoEscravo = novasEvidencias.TrabalhoEscravo
+	evidencias.FlorestaPublica = novasEvidencias.FlorestaPublica
 
 	// 5. Recalcular
 	impedimentos := avaliarImpedimentos(evidencias)
 	score := calcularScore(evidencias)
 	aprovado := !temImpedimento(impedimentos) && score >= ScoreMinimo
 
+	status := StatusAtivo
+	if !aprovado {
+		status = StatusNegado
+	}
+
 	// 6. Novo TCA vinculado à IF solicitante
-	agora := time.Now().UTC()
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return nil, fmt.Errorf("falha ao obter timestamp da transação: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC()
 	validade := agora.AddDate(0, ValidadeMeses, 0)
 	id := fmt.Sprintf("TCA-%s-%s-REVAL", tcaOrigem.CodigoCAR, agora.Format("20060102150405"))
 
@@ -195,7 +199,7 @@ func (c *GreenTraceContract) RevalidarTCA(
 		CodigoCAR:         tcaOrigem.CodigoCAR,
 		CPFCNPJHash:       cpfCNPJHash,
 		InstFinEmissora:   mspID,
-		Status:            StatusAtivo,
+		Status:            status,
 		DataEmissao:       agora.Format(time.RFC3339),
 		DataValidade:      validade.Format(time.RFC3339),
 		Impedimentos:      impedimentos,
@@ -246,10 +250,165 @@ func (c *GreenTraceContract) RevogarTCA(
 	}
 
 	// 2. Atualizar status
-	agora := time.Now().UTC()
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return fmt.Errorf("falha ao obter timestamp da transação: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC()
 	tca.Status = StatusRevogado
 	tca.DataRevogacao = agora.Format(time.RFC3339)
 	tca.MotivoRevogacao = motivo
+
+	return salvarTCA(ctx, tca)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SuspenderTCA
+// Suspende um TCA ATIVO. Geralmente motivado por alertas pós-emissão.
+// ─────────────────────────────────────────────────────────────────────────────
+func (c *GreenTraceContract) SuspenderTCA(
+	ctx contractapi.TransactionContextInterface,
+	tcaID string,
+	motivo string,
+) error {
+	mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return fmt.Errorf("erro ao obter MSPID: %w", err)
+	}
+
+	tca, err := buscarTCAPorID(ctx, tcaID)
+	if err != nil {
+		return fmt.Errorf("TCA não encontrado: %w", err)
+	}
+
+	if mspID != "BancoCentralMSP" && mspID != tca.InstFinEmissora {
+		return fmt.Errorf("acesso negado: apenas BancoCentralMSP ou a IF emissora podem suspender")
+	}
+
+	if tca.Status != StatusAtivo {
+		return fmt.Errorf("não é possível suspender um TCA com status %s", tca.Status)
+	}
+
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return fmt.Errorf("falha ao obter timestamp: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC().Format(time.RFC3339)
+
+	tca.Status = StatusSuspenso
+	tca.DataSuspensao = agora
+	tca.MotivoSuspensao = motivo
+
+	tca.HistoricoSuspensoes = append(tca.HistoricoSuspensoes, Suspensao{
+		Motivo:       motivo,
+		DataSuspenso: agora,
+	})
+
+	return salvarTCA(ctx, tca)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ReativarTCA
+// Retorna um TCA SUSPENSO para ATIVO após validações adicionais
+// ─────────────────────────────────────────────────────────────────────────────
+func (c *GreenTraceContract) ReativarTCA(
+	ctx contractapi.TransactionContextInterface,
+	tcaID string,
+	evidenciasJSON string,
+) (*TCA, error) {
+	mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao obter MSPID: %w", err)
+	}
+
+	tca, err := buscarTCAPorID(ctx, tcaID)
+	if err != nil {
+		return nil, fmt.Errorf("TCA não encontrado: %w", err)
+	}
+
+	if mspID != "BancoCentralMSP" && mspID != tca.InstFinEmissora {
+		return nil, fmt.Errorf("acesso negado: apenas BancoCentralMSP ou a IF emissora podem reativar")
+	}
+
+	if tca.Status != StatusSuspenso {
+		return nil, fmt.Errorf("apenas TCAs suspensos podem ser reativados")
+	}
+
+	var novasEvidencias Evidencias
+	if err := json.Unmarshal([]byte(evidenciasJSON), &novasEvidencias); err != nil {
+		return nil, fmt.Errorf("falha ao processar evidências: %v", err)
+	}
+
+	impedimentos := avaliarImpedimentos(novasEvidencias)
+	if temImpedimento(impedimentos) {
+		return nil, fmt.Errorf("evidências fornecidas ainda constam impedimentos, não é possível reativar")
+	}
+
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return nil, fmt.Errorf("falha ao obter timestamp: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC()
+
+	// Marca a última suspensão como reativada
+	if len(tca.HistoricoSuspensoes) > 0 {
+		tca.HistoricoSuspensoes[len(tca.HistoricoSuspensoes)-1].ReativadoEm = agora.Format(time.RFC3339)
+	}
+
+	tca.Status = StatusAtivo
+	tca.MotivoSuspensao = ""
+	tca.Evidencias = novasEvidencias
+	tca.Impedimentos = impedimentos
+	tca.ScoreConformidade = calcularScore(novasEvidencias)
+	tca.Aprovado = true
+
+	// Se o TCA for vencer nos próximos 30 dias (ou já estourou na janela de suspensão), estender validade
+	validadeAtual, err := time.Parse(time.RFC3339, tca.DataValidade)
+	if err == nil && validadeAtual.Before(agora.AddDate(0, 1, 0)) {
+		tca.DataValidade = agora.AddDate(0, ValidadeMeses, 0).Format(time.RFC3339)
+	}
+
+	if err := salvarTCA(ctx, tca); err != nil {
+		return nil, err
+	}
+
+	return tca, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FinalizarTCA
+// Marca o TCA como FINALIZADO caso a linha de crédito acabe ou seja quitada.
+// ─────────────────────────────────────────────────────────────────────────────
+func (c *GreenTraceContract) FinalizarTCA(
+	ctx contractapi.TransactionContextInterface,
+	tcaID string,
+) error {
+	mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return fmt.Errorf("erro ao obter MSPID: %w", err)
+	}
+
+	tca, err := buscarTCAPorID(ctx, tcaID)
+	if err != nil {
+		return fmt.Errorf("TCA não encontrado: %w", err)
+	}
+
+	if mspID != tca.InstFinEmissora && mspID != "BancoCentralMSP" {
+		return fmt.Errorf("apenas a IF emissora ou o Bacen podem finalizar este TCA")
+	}
+
+	if tca.Status == StatusRevogado || tca.Status == StatusFinalizado {
+		return fmt.Errorf("TCA com status irrevogável (%s) não pode ser finalizado", tca.Status)
+	}
+
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return fmt.Errorf("falha ao obter timestamp: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC().Format(time.RFC3339)
+
+	tca.Status = StatusFinalizado
+	tca.DataFinalizacao = agora
 
 	return salvarTCA(ctx, tca)
 }
@@ -297,6 +456,97 @@ func (c *GreenTraceContract) ListarTCAs(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ConsultarMeusTCAs
+// Retorna os TCAs onde a IF logada é a emissora.
+// ─────────────────────────────────────────────────────────────────────────────
+func (c *GreenTraceContract) ConsultarMeusTCAs(
+	ctx contractapi.TransactionContextInterface,
+) ([]*TCA, error) {
+	mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao obter MSPID: %w", err)
+	}
+
+	query := fmt.Sprintf(`{"selector": {"instFinEmissora": "%s"}}`, mspID)
+	iterator, err := ctx.GetStub().GetQueryResult(query)
+	if err != nil {
+		return nil, fmt.Errorf("erro na query: %w", err)
+	}
+	defer iterator.Close()
+
+	var tcas []*TCA
+	for iterator.HasNext() {
+		item, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		var tca TCA
+		if err := json.Unmarshal(item.Value, &tca); err != nil {
+			return nil, err
+		}
+		tcas = append(tcas, &tca)
+	}
+
+	return tcas, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AuditarTransacoes
+// Retorna o histórico de estado de um TCA baseado no Código CAR
+// ─────────────────────────────────────────────────────────────────────────────
+func (c *GreenTraceContract) AuditarTransacoes(
+	ctx contractapi.TransactionContextInterface,
+	codigoCAR string,
+) ([]*HistoricoTCA, error) {
+	// Pega todos os TCAs emitidos para esse CAR (pode haver mais de um, por ex originais e revalidações)
+	query := fmt.Sprintf(`{"selector": {"codigoCAR": "%s"}}`, codigoCAR)
+	iterator, err := ctx.GetStub().GetQueryResult(query)
+	if err != nil {
+		return nil, fmt.Errorf("erro na query: %w", err)
+	}
+	defer iterator.Close()
+
+	var resultados []*HistoricoTCA
+	for iterator.HasNext() {
+		item, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		
+		// Pra cada TCA, vamos buscar as transações daquele UUID (Key)
+		var tca TCA
+		if err := json.Unmarshal(item.Value, &tca); err != nil {
+			continue
+		}
+
+		histIterator, err := ctx.GetStub().GetHistoryForKey(tca.ID)
+		if err != nil {
+			return nil, fmt.Errorf("erro lendo history para a key %s: %v", tca.ID, err)
+		}
+
+		for histIterator.HasNext() {
+			histRecord, err := histIterator.Next()
+			if err != nil {
+				return nil, err
+			}
+			var histTCA TCA
+			if err := json.Unmarshal(histRecord.Value, &histTCA); err == nil {
+				ts := time.Unix(histRecord.Timestamp.Seconds, int64(histRecord.Timestamp.Nanos)).UTC().Format(time.RFC3339)
+				resultados = append(resultados, &HistoricoTCA{
+					TxId:      histRecord.TxId,
+					Timestamp: ts,
+					TCA:       &histTCA,
+				})
+			}
+		}
+		histIterator.Close()
+	}
+
+	return resultados, nil
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ExpirarTCAs
 // Marca TCAs vencidos como EXPIRADO.
 // Chamado periodicamente (ex: via scheduler externo ou trigger).
@@ -312,7 +562,11 @@ func (c *GreenTraceContract) ExpirarTCAs(
 	}
 	defer iterator.Close()
 
-	agora := time.Now().UTC()
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return 0, fmt.Errorf("falha ao obter timestamp da transação: %v", err)
+	}
+	agora := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).UTC()
 	count := 0
 
 	for iterator.HasNext() {
