@@ -1,0 +1,7 @@
+{
+  "index": {
+    "fields": ["status", "codigoCAR"]
+  },
+  "name": "indexStatusCAR",
+  "type": "json"
+}
