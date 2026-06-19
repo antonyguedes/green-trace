@@ -77,6 +77,7 @@ func (c *GreenTraceContract) EmitirTCA(
         ScoreConformidade: scoreTotal,
         Aprovado:          aprovado,
         Evidencias:        ev,
+        HistoricoSuspensoes: []Suspensao{},
     }
 
     // 6. PERSISTÊNCIA
@@ -208,6 +209,7 @@ func (c *GreenTraceContract) RevalidarTCA(
 		Evidencias:        evidencias,
 		TCAOrigemID:       tcaOrigemID,
 		RevalidadoEm:      agora.Format(time.RFC3339),
+		HistoricoSuspensoes: []Suspensao{},
 	}
 
 	err = salvarTCA(ctx, novoTCA)

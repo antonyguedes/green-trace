@@ -12,11 +12,11 @@ ORDERER_CA="$CRYPTO/ordererOrganizations/bancocentral.green-trace.com/tlsca/tlsc
 ORDERER_CERT="$CRYPTO/ordererOrganizations/bancocentral.green-trace.com/orderers/orderer.bancocentral.green-trace.com/tls/server.crt"
 ORDERER_KEY="$CRYPTO/ordererOrganizations/bancocentral.green-trace.com/orderers/orderer.bancocentral.green-trace.com/tls/server.key"
 CHANNEL_BLOCK="$NETWORK_DIR/channel-artifacts/greentracechannel.block"
-PACKAGE_ID="greentrace_1.0:ab207ab1e64b1c3da917559d4b1167ea89ea4ca780d5e90f5068be7414599671"
-POLICY="OR('BancoCentralMSP.peer','InstFinAMSP.peer','InstFinBMSP.peer','OrgAmbientalMSP.peer')"
-
 export FABRIC_CFG_PATH="$NETWORK_DIR/fabric-samples/config"
 export CORE_PEER_TLS_ENABLED=true
+
+PACKAGE_ID=$(peer lifecycle chaincode calculatepackageid "$NETWORK_DIR/greentrace.tar.gz")
+POLICY="OR('BancoCentralMSP.peer','InstFinAMSP.peer','InstFinBMSP.peer','OrgAmbientalMSP.peer')"
 
 echo "═══════════════════════════════════════════"
 echo "  GreenTrace — Deploy Script"
@@ -25,13 +25,13 @@ echo "════════════════════════�
 # ── 1. osnadmin channel join ─────────────────────────────────────────────────
 echo ""
 echo "▶ [1/4] Registrando canal no orderer..."
-osnadmin channel join \
-  --channelID greentracechannel \
-  --config-block "$CHANNEL_BLOCK" \
-  --orderer-address orderer.bancocentral.green-trace.com:7053 \
-  --ca-file "$ORDERER_CA" \
-  --client-cert "$ORDERER_CERT" \
-  --client-key "$ORDERER_KEY"
+# osnadmin channel join \
+#   --channelID greentracechannel \
+#   --config-block "$CHANNEL_BLOCK" \
+#   --orderer-address orderer.bancocentral.green-trace.com:7053 \
+#   --ca-file "$ORDERER_CA" \
+#   --client-cert "$ORDERER_CERT" \
+#   --client-key "$ORDERER_KEY"
 
 sleep 3
 
@@ -49,10 +49,10 @@ join_peer() {
   CORE_PEER_ADDRESS=$ADDRESS \
   CORE_PEER_TLS_ROOTCERT_FILE=$TLSCERT \
   CORE_PEER_MSPCONFIGPATH=$MSPPATH \
-  peer channel join \
-    -b "$CHANNEL_BLOCK" \
-    --orderer orderer.bancocentral.green-trace.com:7050 \
-    --tls --cafile "$ORDERER_CA"
+#   peer channel join \
+#     -b "$CHANNEL_BLOCK" \
+#     --orderer orderer.bancocentral.green-trace.com:7050 \
+#     --tls --cafile "$ORDERER_CA"
   echo "  ✅ $MSPID joined"
 }
 
@@ -103,8 +103,8 @@ install_and_approve() {
     --ordererTLSHostnameOverride orderer.bancocentral.green-trace.com \
     --tls --cafile "$ORDERER_CA" \
     --channelID greentracechannel \
-    --name greentrace --version 1.0 \
-    --package-id "$PACKAGE_ID" --sequence 1 \
+    --name greentrace --version 2.0 \
+    --package-id "$PACKAGE_ID" --sequence 2 \
     --signature-policy "$POLICY"
   echo "  ✅ $MSPID aprovado"
 }
@@ -143,7 +143,7 @@ peer lifecycle chaincode commit \
   --ordererTLSHostnameOverride orderer.bancocentral.green-trace.com \
   --tls --cafile "$ORDERER_CA" \
   --channelID greentracechannel \
-  --name greentrace --version 1.0 --sequence 1 \
+  --name greentrace --version 2.0 --sequence 2 \
   --signature-policy "$POLICY" \
   --peerAddresses peer0.bancocentral.green-trace.com:7051 \
   --tlsRootCertFiles "$CRYPTO/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/ca.crt" \
