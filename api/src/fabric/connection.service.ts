@@ -26,28 +26,28 @@ export class ConnectionService {
             mspId: 'BancoCentralMSP',
             cryptoPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/bancocentral.green-trace.com'),
             tlsCertPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/ca.crt'),
-            peerEndpoint: 'localhost:7051',
+            peerEndpoint: '127.0.0.1:7051',
             peerHostAlias: 'peer0.bancocentral.green-trace.com',
         },
         InstFinA: {
             mspId: 'InstFinAMSP',
             cryptoPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/instfina.green-trace.com'),
             tlsCertPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/instfina.green-trace.com/peers/peer0.instfina.green-trace.com/tls/ca.crt'),
-            peerEndpoint: 'localhost:8051',
+            peerEndpoint: '127.0.0.1:8051',
             peerHostAlias: 'peer0.instfina.green-trace.com',
         },
         InstFinB: {
             mspId: 'InstFinBMSP',
             cryptoPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/instfinb.green-trace.com'),
             tlsCertPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/instfinb.green-trace.com/peers/peer0.instfinb.green-trace.com/tls/ca.crt'),
-            peerEndpoint: 'localhost:9051',
+            peerEndpoint: '127.0.0.1:9051',
             peerHostAlias: 'peer0.instfinb.green-trace.com',
         },
         OrgAmbiental: {
             mspId: 'OrgAmbientalMSP',
             cryptoPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/orgambiental.green-trace.com'),
             tlsCertPath: path.resolve(__dirname, '../../../network/crypto-config/peerOrganizations/orgambiental.green-trace.com/peers/peer0.orgambiental.green-trace.com/tls/ca.crt'),
-            peerEndpoint: 'localhost:10051',
+            peerEndpoint: '127.0.0.1:10051',
             peerHostAlias: 'peer0.orgambiental.green-trace.com',
         }
     };

@@ -91,7 +91,7 @@ install_and_approve() {
   CORE_PEER_ADDRESS=$ADDRESS \
   CORE_PEER_TLS_ROOTCERT_FILE=$TLSCERT \
   CORE_PEER_MSPCONFIGPATH=$MSPPATH \
-  peer lifecycle chaincode install "$NETWORK_DIR/greentrace.tar.gz"
+  peer lifecycle chaincode install "$NETWORK_DIR/greentrace.tar.gz" || true
 
   echo "  → Aprovando para $MSPID..."
   CORE_PEER_LOCALMSPID=$MSPID \
@@ -103,8 +103,8 @@ install_and_approve() {
     --ordererTLSHostnameOverride orderer.bancocentral.green-trace.com \
     --tls --cafile "$ORDERER_CA" \
     --channelID greentracechannel \
-    --name greentrace --version 2.0 \
-    --package-id "$PACKAGE_ID" --sequence 2 \
+    --name greentrace --version 1.0 \
+    --package-id "$PACKAGE_ID" --sequence 1 \
     --signature-policy "$POLICY"
   echo "  ✅ $MSPID aprovado"
 }
@@ -143,7 +143,7 @@ peer lifecycle chaincode commit \
   --ordererTLSHostnameOverride orderer.bancocentral.green-trace.com \
   --tls --cafile "$ORDERER_CA" \
   --channelID greentracechannel \
-  --name greentrace --version 2.0 --sequence 2 \
+  --name greentrace --version 1.0 --sequence 1 \
   --signature-policy "$POLICY" \
   --peerAddresses peer0.bancocentral.green-trace.com:7051 \
   --tlsRootCertFiles "$CRYPTO/peerOrganizations/bancocentral.green-trace.com/peers/peer0.bancocentral.green-trace.com/tls/ca.crt" \
